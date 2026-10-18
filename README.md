@@ -1,6 +1,3 @@
-# Forked Notice
-I used Claude Sonnet 5.5 to add Live updates from the printer by using the Live option. You can change its settings in Options. By default, it polls every 1 second, so there will be weird slow downs and speed ups.
-
 # Real G-code Playback
 
 **Real G-code Playback** is an [OrcaSlicer](https://github.com/OrcaSlicer/OrcaSlicer) plugin that adds a **Playback** tab: it plays your sliced G-code the way a printer would print it, in real time.
