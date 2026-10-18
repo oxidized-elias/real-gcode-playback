@@ -626,6 +626,8 @@
   /* ------------------------------------------------------------------ playback state */
   let job = null, gcodeText = null, lineStarts = null, currentMeta = {};
   let simT = 0, playing = false, lastFrame = 0, lastShown = -1, dirty = true;
+  // Live mode: the playback clock follows the real printer (see "live printer" below)
+  let live = false, liveRef = null, printerOn = false, printerSt = null, warnedFile = '';
   let curMove = 0;
   let hudTimer = 0;
   const bedCenter = new THREE.Vector3();
@@ -955,11 +957,13 @@
   /* ------------------------------------------------------------------ transport */
   function seek(t) {
     if (!job) return;
+    if (live) setLive(false);
     simT = Math.max(0, Math.min(job.total, t));
     updateScene(true); updateHud();
   }
   function setPlaying(p) {
     if (!job) p = false;
+    if (p && live) setLive(false);
     if (p && simT >= job.total - 1e-6) simT = 0;
     playing = p; lastFrame = performance.now();
     $('playIco').innerHTML = p ? '<rect x="6.5" y="5" width="4" height="14" rx="1"/><rect x="13.5" y="5" width="4" height="14" rx="1"/>'
@@ -1198,6 +1202,16 @@
       if (cur !== codeLastCur) { codeLastCur = cur; codeFollowTo(false); renderCode(); }
     }
     stepCodeScroll();
+    if (live && job && liveRef) {
+      // follow the printer: run at real time from its last report, easing toward it so a corrected
+      // estimate does not make the nozzle jump
+      const ahead = liveRef.running ? Math.min(120, (now - liveRef.at) / 1000) : 0;
+      const target = Math.max(0, Math.min(liveRef.tMax, liveRef.t + ahead));
+      const gap = target - simT;
+      simT = Math.abs(gap) > 3 ? target : simT + gap * 0.12;
+      updateScene(false);
+      if (now - hudTimer > 90) { hudTimer = now; updateHud(); }
+    }
     if (playing && job) {
       const dt = Math.min(0.25, (now - lastFrame) / 1000); lastFrame = now;
       simT += dt * prefs.speed;
@@ -1366,6 +1380,7 @@
       case 'lib_begin': case 'lib_chunk': case 'lib_end': onLibMessage(msg); break;
       case 'status': {
         if (msg.prefs && typeof msg.prefs === 'object') { Object.assign(prefs, msg.prefs); syncOptionUI(); }
+        if (msg.printer) onPrinterCfg(msg.printer);
         renderSetup(msg);
         considerLatest(msg.latest);
         break;
@@ -1401,6 +1416,7 @@
         if (msg.stamp) dismissedStamp = msg.stamp;     // don't retry the same failing slice on every visit
         if (msg.setup) renderSetup(msg);
         break;
+      case 'printer': if (msg.stopped) printerOn = false; onPrinter(msg.status); break;
       case 'toast': toast(msg.message); break;
     }
   }
@@ -1413,6 +1429,78 @@
         msg.hint.steps.map((t, i) => '<div class="step"><span class="num">' + (i + 1) + '</span><span class="txt">' + t + '</span></div>').join('');
     } else steps.hidden = true;
   }
+
+  /* ------------------------------------------------------------------ live printer */
+  /* The plugin asks the printer for its status about once a second and posts it here. In Live mode
+     the playback clock follows it: the printer's layer and progress place the nozzle, and between
+     reports the clock runs at real time. */
+  function syncPrinterFields() {
+    const t = $('prType').value;
+    $('prSerialWrap').hidden = t !== 'bambu';
+    $('prKeyLbl').textContent = t === 'bambu' ? 'LAN access code' : 'API key (only if the printer needs one)';
+    $('prHost').placeholder = t === 'bambu' ? 'printer IP, e.g. 192.168.1.50' : 'e.g. 192.168.1.50 or mainsail.local';
+  }
+  $('prType').onchange = syncPrinterFields;
+  syncPrinterFields();
+  function onPrinterCfg(p) {
+    if (p.cfg) {
+      $('prType').value = p.cfg.type || 'bambu'; syncPrinterFields();
+      $('prHost').value = p.cfg.host || ''; $('prSerial').value = p.cfg.serial || ''; $('prKey').value = p.cfg.key || '';
+      printerOn = !!p.cfg.auto;
+    }
+    onPrinter(p.status || null);
+  }
+  $('prConnect').onclick = () => {
+    if (!host) { toast('Printers can only be connected inside OrcaSlicer.', true); return; }
+    if (printerOn) { send({ cmd: 'printer_disconnect' }); printerOn = false; printerSt = null; setLive(false); onPrinter(null); return; }
+    printerOn = true; printerSt = null;
+    $('prStatus').textContent = 'Connecting…'; $('prConnect').textContent = 'Disconnect';
+    send({ cmd: 'printer_connect', type: $('prType').value, host: $('prHost').value, serial: $('prSerial').value, key: $('prKey').value });
+  };
+  function printerLine(st) {
+    const bits = [({ printing: 'Printing', paused: 'Paused', done: 'Finished', error: 'Error', idle: 'Idle' })[st.state] || st.state];
+    if (typeof st.progress === 'number') bits[0] += ' ' + Math.round(st.progress * 100) + '%';
+    if (st.layer > 0) bits.push('layer ' + st.layer + (st.total_layers > 0 ? '/' + st.total_layers : ''));
+    if (typeof st.nozzle === 'number') bits.push(Math.round(st.nozzle) + '° / ' + Math.round(st.bed || 0) + '°');
+    return bits.join(' · ');
+  }
+  function onPrinter(st) {
+    printerSt = st && st.connected ? st : null;
+    const ok = !!printerSt;
+    $('prConnect').textContent = printerOn ? 'Disconnect' : 'Connect';
+    $('prStatus').textContent = ok ? printerLine(st) : (printerOn ? 'Connecting…' + (st && st.error ? ' ' + st.error : '') : (st && st.error ? st.error : 'Not connected'));
+    $('hPrinterRow').hidden = !printerOn;
+    $('hPrinter').textContent = ok ? printerLine(st) : 'offline';
+    $('tLive').disabled = !ok;
+    if (!ok) { liveRef = null; if (live && !printerOn) setLive(false); return; }
+    if (live) liveUpdate(st);
+  }
+  const stem = (s) => String(s || '').toLowerCase().replace(/\.(gcode|3mf|bgcode)/g, '').replace(/[^a-z0-9]/g, '');
+  function liveUpdate(st) {
+    if (!job || !st) return;
+    const a = stem(st.file), b = stem(currentMeta && currentMeta.name);
+    if (a && b && !a.includes(b) && !b.includes(a) && warnedFile !== a) {
+      warnedFile = a; toast('The printer is running “' + st.file + '”, which may not be the G-code shown here.', true);
+    }
+    if (st.state === 'done') { liveRef = { t: job.total, at: performance.now(), tMax: job.total, running: false }; return; }
+    if (st.state !== 'printing' && st.state !== 'paused') { liveRef = null; return; }
+    let t = typeof st.progress === 'number' ? st.progress * job.total : null, tMax = job.total;
+    if (st.layer > 0) {
+      const so = job.layers[0] && job.layers[0].start ? 1 : 0;
+      const L = job.layers[Math.max(0, Math.min(job.layers.length - 1, st.layer - 1 + so))];
+      t = t === null ? L.t0 : Math.max(L.t0, Math.min(L.t1, t));   // the layer number is exact, the percentage is coarse
+      tMax = L.t1;
+    }
+    if (t === null) { liveRef = null; return; }
+    liveRef = { t, at: performance.now(), tMax, running: st.state === 'printing' };
+  }
+  function setLive(on) {
+    if (on && job && printerSt) { setPlaying(false); live = true; liveRef = null; liveUpdate(printerSt); }
+    else live = false;
+    $('tLive').classList.toggle('on', live);
+  }
+  $('tLive').onclick = () => { if (!live && !job) { toast('Load the G-code of the print first.', true); return; } setLive(!live); };
+
   if (host) host.onMessage(onHostMessage);
 
   /* ------------------------------------------------------------------ boot */

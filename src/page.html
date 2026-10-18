@@ -135,6 +135,12 @@ label.inline { display: inline-flex; align-items: center; gap: 5px; color: var(-
 #optPanel label.check { flex-direction: row; align-items: center; gap: 7px; color: var(--fg); font-size: 12px; }
 #optPanel select { width: 100%; }
 #optPanel { max-height: calc(100% - 20px); overflow-y: auto; }
+#optPanel input[type=text], #optPanel input[type=password] { width: 100%; box-sizing: border-box; background: var(--bg); border: 1px solid var(--border); border-radius: 7px; padding: 4px 7px; font-family: var(--mono); font-size: 11.5px; }
+#printerBox { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); padding-top: 8px; }
+#printerBox .ptitle { font-size: 11.5px; font-weight: 600; }
+#printerBox .prow { display: flex; align-items: center; gap: 8px; }
+#printerBox .prow span { font-size: 11.5px; line-height: 1.3; }
+#printerBox[hidden], #printerBox [hidden] { display: none; }
 #flagList { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 8px 0; }
 #flagList[hidden] { display: none; }
 #flagList .flagHead { font-size: 11.5px; color: var(--muted); }
@@ -237,6 +243,7 @@ kbd { font: 10.5px var(--mono); background: var(--surface-2); border-radius: 4px
       <button id="tTravel" title="Show travel moves of the current layer (T)">Travel</button>
       <button id="tLayer" title="Show only the layer being printed (L)">Layer only</button>
       <button id="tFollow" title="Keep the camera on the nozzle (F)">Follow</button>
+      <button id="tLive" title="Follow the real printer: the playback tracks the print as it happens (connect a printer under Options)" disabled>Live</button>
       <button id="expBtn" title="Export a video or an image (E)" disabled>
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M5 21h14"/></svg>
         Export</button>
@@ -259,6 +266,7 @@ kbd { font: 10.5px var(--mono); background: var(--surface-2); border-radius: 4px
         <tr><td>Accel</td><td class="v" id="hAcc">–</td></tr>
         <tr><td>Filament</td><td id="hTool">–</td></tr>
         <tr><td>Remaining</td><td class="v" id="hRemain">–</td></tr>
+        <tr id="hPrinterRow" hidden><td>Printer</td><td class="v" id="hPrinter">–</td></tr>
       </table>
       <div class="srcRow">
         <button class="icon" id="codeToggle" aria-expanded="false" aria-controls="codePanel" title="Show the G-code (G)">
@@ -409,6 +417,20 @@ kbd { font: 10.5px var(--mono); background: var(--surface-2); border-radius: 4px
       <label class="check"><input type="checkbox" id="headChk"> Show the hot end</label>
       <label class="check"><input type="checkbox" id="gantryChk"> Show the gantry</label>
       <label class="check" title="Pauses when you click another tab or another window takes the focus"><input type="checkbox" id="pauseLeaveChk"> Pause when leaving the Playback tab</label>
+      <div id="printerBox">
+        <div class="ptitle">Printer (Live)</div>
+        <label>Type
+          <select id="prType">
+            <option value="bambu">Bambu Lab (LAN mode)</option>
+            <option value="moonraker">Klipper (Moonraker)</option>
+            <option value="octoprint">OctoPrint</option>
+            <option value="prusalink">PrusaLink</option>
+          </select></label>
+        <label>IP address or host <input type="text" id="prHost" autocomplete="off" spellcheck="false"></label>
+        <label id="prSerialWrap">Serial number <input type="text" id="prSerial" autocomplete="off" spellcheck="false"></label>
+        <label id="prKeyWrap"><span id="prKeyLbl">LAN access code</span> <input type="password" id="prKey" autocomplete="off"></label>
+        <div class="prow"><button id="prConnect" class="primary">Connect</button><span id="prStatus" class="muted">Not connected</span></div>
+      </div>
       <div class="about"><span id="verText">Playback</span> · <a href="#" id="logLink">What's new</a></div>
       <div id="changelog" hidden></div>
     </div>

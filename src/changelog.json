@@ -1,6 +1,14 @@
 {
-  "version": "1.6.0",
+  "version": "1.7.0",
   "entries": [
+    {
+      "version": "1.7.0",
+      "date": "2026-10-17",
+      "changes": [
+        "Live mode: connect a printer under Options > Printer (Bambu Lab in LAN mode, Klipper/Moonraker, OctoPrint or PrusaLink) and the playback follows the real print, updating about once a second",
+        "The HUD shows the printer's state, progress, layer and temperatures; the plugin only reads status and never sends commands"
+      ]
+    },
     {
       "version": "1.6.0",
       "date": "2026-10-11",
